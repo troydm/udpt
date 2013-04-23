@@ -18,6 +18,8 @@
  */
 
 #include <iostream>
+#include <string>	
+#include <fcntl.h>
 
 #include "multiplatform.h"
 #include "udpTracker.hpp"
@@ -25,6 +27,7 @@
 #include "http/httpserver.hpp"
 #include "http/webapp.hpp"
 #include <cstdlib>	// atoi
+#include <cstdio>	// freopen
 
 using namespace std;
 using namespace UDPT;
@@ -32,7 +35,7 @@ using namespace UDPT::Server;
 
 static void _print_usage ()
 {
-	cout << "Usage: udpt [<configuration file>]" << endl;
+	cout << "Usage: udpt [-d] [<log file>] [<configuration file>]" << endl;
 }
 
 static void _doAPIStart (Settings *settings, WebApp **wa, HTTPServer **srv, DatabaseDriver *drvr)
@@ -70,6 +73,43 @@ static void _doAPIStart (Settings *settings, WebApp **wa, HTTPServer **srv, Data
 
 int main(int argc, char *argv[])
 {
+        bool daemon = false;
+
+        // Start as daemon
+        if(argc > 2){
+            if(string(argv[1]) == "-d"){
+                cout << "starting daemon.." ;            
+
+                // Forking daemon process
+                pid_t pid = fork();
+                if(pid < 0){
+                    cout << ". failed!" << endl;
+                    exit(EXIT_FAILURE);                
+                }
+                if(pid > 0){
+                    cout << ". started!" << endl;
+                    exit(EXIT_SUCCESS);                
+                }
+
+                // Setting umask and new process group
+                umask(0);
+                pid_t sid = setsid();
+                if (sid < 0) {
+                    exit(EXIT_FAILURE);
+                }
+                // Changing current working directory
+                if ((chdir("/")) < 0) {
+                    exit(EXIT_FAILURE);
+                }
+                // Closing unncessary file handles
+                freopen("/dev/null", "r", stdin);
+                freopen( argv[2], "w", stderr);
+                freopen( argv[2], "w", stdout);
+
+                daemon = true;
+            }
+        }
+
 	Settings *settings = NULL;
 	UDPTracker *usi = NULL;
 	string config_file;
@@ -86,10 +126,15 @@ int main(int argc, char *argv[])
 
 	config_file = "udpt.conf";
 
-	if (argc <= 1)
+	if (argc > 1 && string(argv[1]) == "-h")
 	{
 		_print_usage ();
+                exit(EXIT_SUCCESS);                
 	}
+
+        if(argc > 1){
+            config_file = argv[argc-1];
+        }
 
 	settings = new Settings (config_file);
 
@@ -110,6 +155,8 @@ int main(int argc, char *argv[])
 		settings->set (strTRACKER, "allow_iana_ips", "1");
 		settings->set (strTRACKER, "announce_interval", "1800");
 		settings->set (strTRACKER, "cleanup_interval", "120");
+		settings->set (strTRACKER, "local_subnet", "192.168.0");
+		settings->set (strTRACKER, "remote_ip", "192.168.1.0");
 
 		settings->set (strAPISRV, "enable", "1");
 		settings->set (strAPISRV, "threads", "1");
@@ -145,9 +192,14 @@ int main(int argc, char *argv[])
 
 	_doAPIStart(settings, &wa, &apiSrv, usi->conn);
 
-	cout << "Press Any key to exit." << endl;
-
-	cin.get();
+        if(daemon){
+            while(1){
+                sleep(30);        
+            }
+        }else{
+            cout << "Press Any key to exit." << endl;
+	    cin.get();
+        }
 
 cleanup:
 	cout << endl << "Goodbye." << endl;

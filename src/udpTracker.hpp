@@ -138,6 +138,8 @@ namespace UDPT
 		uint8_t thread_count;
 		bool isRunning;
 		bool isDynamic;
+                string local_subnet;
+                string remote_ip;
 		HANDLE *threads;
 		uint32_t announce_interval;
 		uint32_t cleanup_interval;

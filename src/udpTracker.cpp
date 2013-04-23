@@ -20,6 +20,7 @@
 #include "udpTracker.hpp"
 #include "tools.h"
 #include <cstdlib> // atoi
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <iostream>
@@ -72,7 +73,9 @@ namespace UDPT
 			s_allow_iana_ip,	// IANA IPs allowed?
 			s_int_announce,	// announce interval
 			s_int_cleanup,		// cleanup interval
-			s_is_dynamic;
+			s_is_dynamic,
+                        s_local_subnet,
+                        s_remote_ip;
 
 		sc_tracker = settings->getClass("tracker");
 
@@ -83,6 +86,8 @@ namespace UDPT
 		s_int_announce = sc_tracker->get ("announce_interval");
 		s_int_cleanup = sc_tracker-> get ("cleanup_interval");
 		s_is_dynamic = sc_tracker->get("is_dynamic");
+		s_local_subnet = sc_tracker->get("local_subnet");
+		s_remote_ip = sc_tracker->get("remote_ip");
 
 		if (_isTrue(s_allow_remotes) == 1)
 			n_settings |= UDPT_ALLOW_REMOTE_IP;
@@ -99,6 +104,8 @@ namespace UDPT
 		this->cleanup_interval = (s_int_cleanup == "" ? 120 : atoi (s_int_cleanup.c_str()));
 		this->port = (s_port == "" ? 6969 : atoi (s_port.c_str()));
 		this->thread_count = (s_threads == "" ? 5 : atoi (s_threads.c_str())) + 1;
+                this->local_subnet = s_local_subnet;
+                this->remote_ip = s_remote_ip;
 
 		this->threads = new HANDLE[this->thread_count];
 
@@ -248,6 +255,19 @@ namespace UDPT
 		return 0;
 	}
 
+static inline string _ip_to_str (uint32_t ip)
+{
+    char buf[50];
+    sprintf(buf, "%d.%d.%d.%d", ip >> 24, ((ip >> 16) & 0xff) , ((ip >> 8) & 0xff) , (ip & 0xff));
+    return buf;
+}
+
+static inline uint32_t _str_to_ip (string ip){
+    int ipbytes[4];
+    sscanf(ip.c_str(), "%d.%d.%d.%d", &ipbytes[3], &ipbytes[2], &ipbytes[1], &ipbytes[0]);
+    return ipbytes[0] | ipbytes[1] << 8 | ipbytes[2] << 16 | ipbytes[3] << 24;
+}
+
 	int UDPTracker::handleAnnounce (UDPTracker *usi, SOCKADDR_IN *remote, char *data)
 	{
 		AnnounceRequest *req;
@@ -315,6 +335,8 @@ namespace UDPT
 			break;
 		}
 
+                cout << event << endl;
+
 		if (event == DatabaseDriver::EVENT_STOP)
 			q = 0;	// no need for peers when stopping.
 
@@ -325,7 +347,12 @@ namespace UDPT
 		bSize += (6 * q); // + 6 bytes per peer.
 
 		tE.info_hash = req->info_hash;
-		usi->conn->getTorrentInfo(&tE);
+		if(!usi->conn->getTorrentInfo(&tE)){
+                    cout << "couldn't get torrent info" << endl;                                    
+                }
+
+		char xHash [50];
+                to_hex_str (req->info_hash, xHash);
 
 		resp = (AnnounceResponse*)buff;
 		resp->action = m_hton32(1);
@@ -334,16 +361,45 @@ namespace UDPT
 		resp->seeders = m_hton32 (tE.seeders);
 		resp->transaction_id = req->transaction_id;
 
+		uint32_t ip;
+		if (req->ip_address == 0) // default
+			ip = m_hton32 (remote->sin_addr.s_addr);
+		else
+			ip = req->ip_address;
+
+                uint32_t remoteIp = _str_to_ip(usi->remote_ip);
+                string clientIp = _ip_to_str(ip);
+                bool clientIpLocal = clientIp.find(usi->local_subnet,0) == 0;
+                cout << "Announce on: " << xHash << " from: " << clientIp << endl;
+                cout << "Total Peers: " << q << endl;
+
 		for (i = 0;i < q;i++)
 		{
+                        uint32_t peerIpInt;
+                        string peerIp = _ip_to_str(peers[i].ip);
+                        bool peerLocal = peerIp.find(usi->local_subnet,0) == 0;
+                        if(clientIpLocal){
+                            peerIpInt = peers[i].ip;
+                            peerIp = _ip_to_str(peerIpInt);
+                            cout << "Peer: " << peerIp << ":" << peers[i].port << endl;
+                        }else if(peerLocal){
+                            peerIpInt = remoteIp;
+                            peerIp = usi->remote_ip;
+                            cout << "Peer: " << peerIp << ":" << peers[i].port << " (changed)" << endl;
+                        }else{
+                            peerIpInt = peers[i].ip;
+                            peerIp = _ip_to_str(peerIpInt);
+                            cout << "Peer: " << peerIp << ":" << peers[i].port << endl;
+                        }
+
 			int x = i * 6;
 			// network byte order!!!
 
 			// IP
-			buff[20 + x] = ((peers[i].ip & (0xff << 24)) >> 24);
-			buff[21 + x] = ((peers[i].ip & (0xff << 16)) >> 16);
-			buff[22 + x] = ((peers[i].ip & (0xff << 8)) >> 8);
-			buff[23 + x] = (peers[i].ip & 0xff);
+			buff[20 + x] = ((peerIpInt & (0xff << 24)) >> 24);
+			buff[21 + x] = ((peerIpInt & (0xff << 16)) >> 16);
+			buff[22 + x] = ((peerIpInt & (0xff << 8)) >> 8);
+			buff[23 + x] = (peerIpInt & 0xff);
 
 			// port
 			buff[24 + x] = ((peers[i].port & (0xff << 8)) >> 8);
@@ -354,11 +410,6 @@ namespace UDPT
 		sendto(usi->sock, (char*)buff, bSize, 0, (SOCKADDR*)remote, sizeof(SOCKADDR_IN));
 
 		// update DB.
-		uint32_t ip;
-		if (req->ip_address == 0) // default
-			ip = m_hton32 (remote->sin_addr.s_addr);
-		else
-			ip = req->ip_address;
 		usi->conn->updatePeer(req->peer_id, req->info_hash, ip, req->port,
 				req->downloaded, req->left, req->uploaded, event);
 
@@ -367,6 +418,7 @@ namespace UDPT
 
 	int UDPTracker::handleScrape (UDPTracker *usi, SOCKADDR_IN *remote, char *data, int len)
 	{
+                cout << "Handling scrape: " << endl;
 		ScrapeRequest *sR;
 		int v,	// validation helper
 			c,	// torrent counter
@@ -392,6 +444,7 @@ namespace UDPT
 				m_hton32(remote->sin_addr.s_addr),
 				m_hton16(remote->sin_port)))
 		{
+                        cout << "scrape connection not verified" << endl;
 			return 1;
 		}
 
@@ -413,16 +466,16 @@ namespace UDPT
 
 			to_hex_str (hash, xHash);
 
-			cout << "\t" << xHash << endl;
-
 			seeders = (int32_t*)&buffer[i*12+8];
 			completed = (int32_t*)&buffer[i*12+12];
 			leechers = (int32_t*)&buffer[i*12+16];
 
 			DatabaseDriver::TorrentEntry tE;
 			tE.info_hash = hash;
-			if (!usi->conn->getTorrentInfo(&tE))
+                        
+			if(!usi->conn->getTorrentInfo(&tE))
 			{
+                                cout << "error getting torrent info: " << xHash << endl;
 				sendError(usi, remote, sR->transaction_id, "Scrape Failed: couldn't retrieve torrent data");
 				return 0;
 			}
@@ -430,6 +483,8 @@ namespace UDPT
 			*seeders = m_hton32 (tE.seeders);
 			*completed = m_hton32 (tE.completed);
 			*leechers = m_hton32 (tE.leechers);
+
+			cout << "\t" << xHash << " Seeders: " << *seeders << " Completed: " << *completed << " Leechers: " << *leechers << endl;
 		}
 		cout.flush();
 
@@ -446,10 +501,13 @@ static int _isIANA_IP (uint32_t ip)
 	return 0;
 }
 
+
 	int UDPTracker::resolveRequest (UDPTracker *usi, SOCKADDR_IN *remote, char *data, int r)
 	{
 		ConnectionRequest *cR;
 		uint32_t action;
+                
+		cout << "Handling request" << endl;
 
 		cR = (ConnectionRequest*)data;
 
@@ -463,7 +521,7 @@ static int _isIANA_IP (uint32_t ip)
 			}
 		}
 
-//		cout << ":: " << (void*)m_hton32(remote->sin_addr.s_addr) << ": " << m_hton16(remote->sin_port) << " ACTION=" << action << endl;
+		cout << ":: " << (void*)m_hton32(remote->sin_addr.s_addr) << ": " << m_hton16(remote->sin_port) << " ACTION=" << action << endl;
 
 		if (action == 0 && r >= 16)
 			return UDPTracker::handleConnection (usi, remote, data);

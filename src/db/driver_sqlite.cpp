@@ -221,10 +221,29 @@ namespace UDPT
 			r = sqlite3_step(stmt);
 			sqlite3_finalize(stmt);
 
-			sql = "REPLACE INTO stats (info_hash,last_mod) VALUES (?,?)";
+                        // calculate seeders, leechers
+                        int leechers = 0, seeders = 0;
+                        sql = "SELECT left FROM 't";
+			sql += hash;
+			sql += "'";
+			sqlite3_prepare(this->db, sql.c_str(), sql.length(), &stmt, NULL);
+                        while(sqlite3_step(stmt) == SQLITE_ROW){
+                            int64_t* left = (int64_t*)sqlite3_column_blob(stmt, 0);
+                            if(*left == 0)
+                                seeders += 1;
+                            else
+                                leechers += 1;
+                        }
+			sqlite3_finalize (stmt);
+
+                        cout << "seeders " << seeders << " leechers " << leechers << endl;
+
+			sql = "REPLACE INTO stats (info_hash,last_mod,seeders,leechers) VALUES (?,?,?,?)";
 			sqlite3_prepare (this->db, sql.c_str(), sql.length(), &stmt, NULL);
-			sqlite3_bind_blob (stmt, 1, hash, 20, NULL);
+			sqlite3_bind_blob (stmt, 1, info_hash, 20, NULL);
 			sqlite3_bind_int (stmt, 2, time(NULL));
+			sqlite3_bind_int (stmt, 3, seeders);
+			sqlite3_bind_int (stmt, 4, leechers);
 			sqlite3_step (stmt);
 			sqlite3_finalize (stmt);
 
