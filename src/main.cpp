@@ -20,6 +20,7 @@
 #include <iostream>
 #include <string>	
 #include <fcntl.h>
+#include <sys/stat.h>
 
 #include "multiplatform.h"
 #include "udpTracker.hpp"
