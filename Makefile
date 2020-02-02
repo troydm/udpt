@@ -33,7 +33,7 @@ all: $(target)
 	
 $(target): $(objects)
 	@echo Linking...
-	$(CXX) $(LDFLAGS) -O3 -o $(target) $(objects) -lsqlite3
+	$(CXX) $(LDFLAGS) -O3 -o $(target) $(objects) -lsqlite3 -lpthread
 	@echo Done.
 clean:
 	@echo Cleaning Up...
