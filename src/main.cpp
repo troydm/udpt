@@ -144,6 +144,7 @@ int main(int argc, char *argv[])
 		const char strDATABASE[] = "database";
 		const char strTRACKER[] = "tracker";
 		const char strAPISRV [] = "apiserver";
+		const char strAPIKEY [] = "api.keys";
 		// set default settings:
 
 		settings->set (strDATABASE, "driver", "sqlite3");
@@ -162,6 +163,9 @@ int main(int argc, char *argv[])
 		settings->set (strAPISRV, "enable", "1");
 		settings->set (strAPISRV, "threads", "1");
 		settings->set (strAPISRV, "port", "6969");	// TCP PORT
+
+		settings->set(strAPIKEY, "admin", "127.0.0.1");
+
 
 		settings->save();
 		cerr << "Failed to read from '" << config_file.c_str() << "'. Using default settings." << endl;
