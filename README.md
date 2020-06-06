@@ -49,6 +49,10 @@ $ ./udpt -d [udpt.log] [udpt.conf]
 Cleaning:
 $ make clean
 
+Adding torrent using HTTP API:
+https://127.0.0.1?auth=admin&action=add&hash=TORRENT_HASH
+you can change the ip and auth value in udpt.conf file under [api.keys]
+
 This software currently uses the Sqlite3 Library (public domain).
 
 Developed by Naim A. <naim94a@gmail.com>.
