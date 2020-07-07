@@ -1,7 +1,7 @@
 UDPT - lightweight torrent tracker for linux.
 
-This is a slightly modified experimental UDPT version
-Original version is at [http://code.google.com/p/udpt/][1]
+This is a modified experimental UDPT version
+Original version is at [https://github.com/naim94a/udpt][1]
 
 This modified version contains following changes:
 
@@ -38,16 +38,22 @@ The license file is attached under the name gpl.txt.
 Compiling under linux or linux environment (MinGW):
 
 For Linux:
-$ make linux
-
+```
+$ sudo apt install libsqlite3-dev
+$ make
+```
 Running:
+```
 $ ./udpt [udpt.conf]
-
+```
 Running as daemon:
+```
 $ ./udpt -d [udpt.log] [udpt.conf]
-
+```
 Cleaning:
+```
 $ make clean
+```
 
 Adding torrent using HTTP API:
 https://127.0.0.1?auth=admin&action=add&hash=TORRENT_HASH
